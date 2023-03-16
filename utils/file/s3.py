@@ -71,7 +71,8 @@ class _Remote:
                 raise e
         return True
 
-    def list(self, prefix: Optional[str] = None, recursive: bool = True, verbose = False) -> Union[List[dict], pd.DataFrame]:
+    def list(self, prefix: Optional[str] = None, recursive: bool = True,
+             verbose=False) -> Union[List[dict], pd.DataFrame]:
         """List the contents of the (remote) S3 Bucket
 
         Args:
@@ -94,7 +95,9 @@ class _Remote:
 
         # List the objects in the bucket
         try:
-            contents_pages = [page['Contents'] for page in tqdm(page_iterator, 'Bucket Pages (List Objects)', disable=not verbose)]
+            contents_pages = [
+                page['Contents'] for page in tqdm(page_iterator, 'Bucket Pages (List Objects)', disable=not verbose)
+            ]
             contents = list(chain.from_iterable(contents_pages))
         except KeyError as e:
             # Nothing to list (empty)

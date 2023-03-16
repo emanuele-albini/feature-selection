@@ -16,10 +16,10 @@ from sklearn.exceptions import NotFittedError
 from ...file import (
     load_booster,
     save_booster as _save_booster,
-    load_wrapper_params, 
+    load_wrapper_params,
     save_wrapper_params,
-    load_wrapper_attributes, 
-    save_wrapper_attributes, 
+    load_wrapper_attributes,
+    save_wrapper_attributes,
     make_booster_agnostic,
 )
 from ..tune import find_best_threshold_by_rate_equivalence
