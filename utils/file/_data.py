@@ -70,7 +70,7 @@ def save_data(X, filename, format=None):
     if isinstance(X, pd.DataFrame):
         save_dataframe(X, filename + f'.{format}', format=format)
     elif isinstance(X, pd.Series):
-        save_dataframe(X, filename + f'.series.{format}', format=format)
+        save_dataframe(pd.DataFrame(X), filename + f'.series.{format}', format=format)
     elif isinstance(X, np.ndarray):
         if len(X.shape) == 2:
             save_dataframe(pd.DataFrame(X), filename + f'.npy.{format}', format=format)
