@@ -54,6 +54,7 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
         X: np.ndarray,
         y: np.ndarray,
         progress_bar: bool = False,
+        n_jobs: int = 1,
     ):
         """Fit the feature selection filter based on the mRMR algorithm.
 
@@ -78,6 +79,7 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
             y,
             progress_bar=progress_bar,
             progress_bar_kwargs=dict(desc=f'CMIM: Relevance ({self.get_relevance_name()})'),
+            n_jobs=n_jobs,
         )
         partial_score = relevance.copy()
         partial_score_comparisons = defaultdict(list)
@@ -85,7 +87,7 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
         # Initialize selected features
         ranking = np.full(n_features, np.nan)
 
-        n_iterations = min(self.k, n_features) if self.k is not None else n_features
+        n_iterations = self.get_n_iterations(n_features)
         for iteration in range(n_iterations):
 
             selected_features = np.where(~np.isnan(ranking))[0]
@@ -110,6 +112,9 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
                         cond_relevance = self.get_conditional_relevance(X, y, i, j)
                         partial_score[i] = min(partial_score[i], cond_relevance)
                         partial_score_comparisons[i].append(j)
+
+                if partial_score[i] > best_partial_score:
+                    best_partial_score = partial_score[i]
 
             # Select the best feature only among the remaining features
             best_feature = np.argmax(np.where(np.isnan(ranking), partial_score, -np.inf))

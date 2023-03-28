@@ -3,10 +3,15 @@
 """
 __all__ = ["MRMR"]
 
+import time
+import itertools
 from typing import Union, Optional
-import numpy as np
-from tqdm import tqdm
+import multiprocessing
 
+from tqdm import tqdm
+from joblib import Parallel, delayed
+
+import numpy as np
 from sklearn.base import BaseEstimator
 
 from ._utils import RankingSelectorMixin, RelevanceMixin, RedundancyMixin
@@ -62,6 +67,7 @@ class MRMR(RankingSelectorMixin, RelevanceMixin, RedundancyMixin, BaseEstimator)
         X: np.ndarray,
         y: np.ndarray,
         progress_bar: bool = False,
+        n_jobs: int = 1,
     ):
         """Fit the feature selection filter based on the mRMR algorithm.
 
@@ -87,6 +93,7 @@ class MRMR(RankingSelectorMixin, RelevanceMixin, RedundancyMixin, BaseEstimator)
             y,
             progress_bar=progress_bar,
             progress_bar_kwargs=dict(desc=f'mRMR: Relevance ({self.get_relevance_name()})'),
+            n_jobs=n_jobs,
         )
         redundancy = np.full(n_features, np.nan)
         score = np.full(n_features, np.nan)
@@ -97,26 +104,27 @@ class MRMR(RankingSelectorMixin, RelevanceMixin, RedundancyMixin, BaseEstimator)
         # Initialize selected features
         ranking = np.full(n_features, np.nan)
 
-        n_iterations = min(self.k, n_features) if self.k is not None else n_features
+        n_iterations = self.get_n_iterations(n_features)
         for iteration in range(n_iterations):
             selected_features = np.where(~np.isnan(ranking))[0]
             remaining_features = np.where(np.isnan(ranking))[0]
 
-            # Compute the redundancy of feature i with the selected features
-            redundancy_ = np.zeros(n_features)
-            for i in tqdm(
-                remaining_features,
-                disable=not progress_bar,
-                desc=f'mRMR: Redundancy ({self.get_redundancy_name()}) ({iteration + 1}/{n_iterations})'
-            ):
-                for j in selected_features:
-                    redundancy_[i] += self.get_redundancy(X, i, j, redundancy_cache)
-
             # Weight the redundancy by the number of selected features
             if iteration == 0:
-                redundancy_ = 0
+                redundancy_ = np.ones(n_features)
             else:
-                redundancy_ = redundancy_ / len(selected_features)
+                # Compute the redundancy of feature i with the selected features
+                ijs = itertools.product(remaining_features, selected_features)
+                redundancies = self.get_redundancies(
+                    X,
+                    ijs,
+                    cache=redundancy_cache,
+                    progress_bar=progress_bar,
+                    n_jobs=n_jobs,
+                    progress_bar_kwargs=dict(
+                        desc=f'mRMR: Redundancy ({self.get_redundancy_name()}) ({iteration + 1}/{n_iterations})'),
+                )
+                redundancy_ = np.nan_to_num(redundancies, nan=0.0).sum(axis=1) / len(selected_features)
 
             # Avoid division by zero (when quotient=True)
             if self.quotient:
@@ -125,7 +133,7 @@ class MRMR(RankingSelectorMixin, RelevanceMixin, RedundancyMixin, BaseEstimator)
             scores_ = relevance / redundancy_ if self.quotient else relevance - redundancy_
 
             # Select the best feature
-            best_feature = np.argmax(scores_)
+            best_feature = np.argmax(np.where(np.isnan(ranking), scores_, -np.inf))
 
             # Update results
             score[best_feature] = scores_[best_feature]

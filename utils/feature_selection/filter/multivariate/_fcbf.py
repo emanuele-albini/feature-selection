@@ -28,6 +28,7 @@ class FCBF(RankingSelectorMixin, RelevanceMixin, RedundancyMixin, BaseEstimator)
         symmetric_redundancy: bool = False,
         k: int = None,
         delta: float = 0.0,
+        gamma: float = 1.0,
     ):
         """Initialize the FCBF multivariate filter.
 
@@ -39,9 +40,13 @@ class FCBF(RankingSelectorMixin, RelevanceMixin, RedundancyMixin, BaseEstimator)
             symmetric_redundancy (bool, optional): If True, the algorithm will assume symmetric redundancy (less expensive computationally). Defaults to False.
             k (int, optional): Number of features to select. If None, it will run the algorithm on all features (and k must be passed to `get_support`). Defaults to None.
             delta (float, optional): The minimum relevance for the selected features. Defaults to 0.0.
+                The higher the value, the larger the number of non-relevant features ignored will be.
+            gamma (float, optional): The redundancy/relevance ratio below which a feature is considered redundant. Defaults to 1.0.
+                The higher the value, the more redundant features will be selected.
         """
 
         self.delta = delta
+        self.gamma = gamma
         super().__init__(
             k=k,
             relevance=relevance,
@@ -56,6 +61,7 @@ class FCBF(RankingSelectorMixin, RelevanceMixin, RedundancyMixin, BaseEstimator)
         X: np.ndarray,
         y: np.ndarray,
         progress_bar: bool = False,
+        n_jobs: int = 1,
     ):
         """Fit the feature selection filter based on the mRMR algorithm.
 
@@ -80,7 +86,8 @@ class FCBF(RankingSelectorMixin, RelevanceMixin, RedundancyMixin, BaseEstimator)
             X,
             y,
             progress_bar=progress_bar,
-            progress_bar_kwargs=dict(desc='FCBF: Relevance'),
+            progress_bar_kwargs=dict(desc=f'FCBF: Relevance ({self.get_relevance_name()})'),
+            n_jobs=n_jobs,
         )
 
         # Let's setup a cache for the redundancy calculation
@@ -89,7 +96,7 @@ class FCBF(RankingSelectorMixin, RelevanceMixin, RedundancyMixin, BaseEstimator)
         # Set of selected features (highest relevance first)
         selected_features = np.argsort(relevance)[::-1]
 
-        n_iterations = min(self.k, n_features) if self.k is not None else n_features
+        n_iterations = self.get_n_iterations(n_features)
         for i in range(n_iterations):
             # Early stopping if there are no more features to select
             if i >= len(selected_features):
@@ -106,16 +113,23 @@ class FCBF(RankingSelectorMixin, RelevanceMixin, RedundancyMixin, BaseEstimator)
 
             following_features = selected_features[i + 1:].copy()
 
-            for following_feature in tqdm(following_features,
-                                          disable=not progress_bar,
-                                          desc=f'FCBF: Redundancy {i}/{n_iterations}'):
+            redundancies = self.get_redundancies(
+                X,
+                [(current_feature, j) for j in following_features],
+                cache=redundancy_cache,
+                progress_bar=progress_bar,
+                progress_bar_kwargs=dict(desc=f'FCBF: Redundancy ({self.get_redundancy_name()}) {i}/{n_iterations}'),
+                n_jobs=n_jobs,
+            )
+
+            for following_feature in following_features:
                 # Get the redundancy
-                redundancy_value = self.get_redundancy(X, current_feature, following_feature, redundancy_cache)
+                redundancy_value = redundancies[(current_feature, following_feature)]
                 relevance_value = relevance[following_feature]
 
                 # Remove the feature from the selected features
                 # if the y are more redundant (with already included features) than relevant
-                if redundancy_value > relevance_value:
+                if redundancy_value > self.gamma * relevance_value:
                     # NOTE: We have to use np.where because following_feature may change position during the loop
                     selected_features = np.delete(selected_features, np.where(selected_features == following_feature))
 

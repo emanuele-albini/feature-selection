@@ -15,7 +15,6 @@ __all__ = [
     "contingency_hypercube",
 ]
 
-from tqdm import tqdm
 import numpy as np
 from scipy.special import digamma
 from sklearn.neighbors import NearestNeighbors

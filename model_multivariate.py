@@ -1,4 +1,5 @@
 import logging
+import time
 from os import makedirs
 from collections import defaultdict
 from multiprocessing import cpu_count
@@ -51,6 +52,8 @@ class SelectKBest:
 
 if __name__ == "__main__":
 
+    logging.getLogger().setLevel(logging.INFO)
+
     parser = ArgumentParser(description="Feature Selection using Filter Methods")
     parser.add_argument('--name', type=str, help='Name of the model')
     parser.add_argument('--dir', type=str, default='results', help='Directory where to save the results')
@@ -61,6 +64,7 @@ if __name__ == "__main__":
     parser.add_argument('--load', action='store_true', default=False, help='Load filters from disk')
     parser.add_argument('--train_size', type=float, default=1.0, help='Train Split')
     parser.add_argument('--k', nargs='+', type=int, help='Number of features to select (it can be a list)')
+    parser.add_argument('--n_jobs', type=int, help='Number of jobs to run in parallel', default=cpu_count() - 1)
     args = parse_args(parser)
 
     assert args.name is not None
@@ -78,11 +82,17 @@ if __name__ == "__main__":
     X_train, X_test, y_train, y_test, features = load_training_data(random_state=args.random_state,
                                                                     test_size=1 - args.train_size)
 
+    # Repeat data
+    X_train = pd.concat([X_train] * 100, axis=0)
+    y_train = pd.concat([y_train] * 100, axis=0)
+
+    print('Shapes', X_train.shape, y_train.shape, X_test.shape, y_test.shape)
+
     MI_ARGS = dict(
         n=100000,
         random_state=args.random_state,
-        discrete_target=True,
         discrete_features=False,
+        discrete_target=True,
     )
 
     FILTERS = {
@@ -92,6 +102,7 @@ if __name__ == "__main__":
             redundancy='mi',
             relevance_kwargs=MI_ARGS,
             redundancy_kwargs=MI_ARGS,
+            symmetric_redundancy=True,
         ),
         'FCBF_mi':
         FCBF(
@@ -99,6 +110,7 @@ if __name__ == "__main__":
             redundancy='mi',
             relevance_kwargs=MI_ARGS,
             redundancy_kwargs=MI_ARGS,
+            symmetric_redundancy=True,
         ),
         'CMIM':
         CMIM(
@@ -110,9 +122,11 @@ if __name__ == "__main__":
     }
 
     if not args.load:
-        for _, filter in FILTERS.items():
-            logging.info(f'Fitting {filter} multivariate filter.')
-            filter.fit(X_train, y_train, progress_bar=True)
+        for filter_name, filter in FILTERS.items():
+            t = time.perf_counter()
+            logging.info(f'Fitting {filter_name} multivariate filter.')
+            filter.fit(X_train, y_train, progress_bar=True, n_jobs=args.n_jobs)
+            logging.info(f'Fitting {filter_name} multivariate filter took {time.perf_counter() - t:.2f} seconds.')
 
         # Let's generate 3 dataframes where rows are filters and columns are features:
         # - rankings: rankings of the features (1-indexed, the lower the more important)
