@@ -112,7 +112,7 @@ if __name__ == "__main__":
     if not args.load:
         for _, filter in FILTERS.items():
             logging.info(f'Fitting {filter} multivariate filter.')
-            filter.fit(X_train, y_train)
+            filter.fit(X_train, y_train, progress_bar=True)
 
         # Let's generate 3 dataframes where rows are filters and columns are features:
         # - rankings: rankings of the features (1-indexed, the lower the more important)
