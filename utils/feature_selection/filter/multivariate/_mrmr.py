@@ -104,14 +104,19 @@ class MRMR(RankingSelectorMixin, RelevanceMixin, RedundancyMixin, BaseEstimator)
 
             # Compute the redundancy of feature i with the selected features
             redundancy_ = np.zeros(n_features)
-            for i in tqdm(remaining_features,
-                          disable=not progress_bar,
-                          desc=f'mRMR: Redundancy ({iteration + 1}/{n_iterations})'):
+            for i in tqdm(
+                remaining_features,
+                disable=not progress_bar,
+                desc=f'mRMR: Redundancy ({self.get_redundancy_name()}) ({iteration + 1}/{n_iterations})'
+            ):
                 for j in selected_features:
                     redundancy_[i] += self.get_redundancy(X, i, j, redundancy_cache)
 
             # Weight the redundancy by the number of selected features
-            redundancy_ = redundancy_ / len(selected_features)
+            if iteration == 0:
+                redundancy_ = 0
+            else:
+                redundancy_ = redundancy_ / len(selected_features)
 
             # Avoid division by zero (when quotient=True)
             if self.quotient:
