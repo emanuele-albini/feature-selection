@@ -1,3 +1,4 @@
+import os
 import logging
 from typing import Union, Optional
 from abc import ABC, abstractmethod
@@ -11,6 +12,12 @@ from sklearn.utils.validation import check_is_fitted
 
 from ..univariate import UnivariateFilterMethod
 from ._cmi import conditional_mutual_info_score
+
+
+def _get_joblib_temp_folder():
+    if os.path.exists('/sys/fs/cgroup'):
+        return '/sys/fs/cgroup'
+    return None
 
 
 def __remove_pvalues_decorator(function: callable):
@@ -45,7 +52,8 @@ def get_function(function: Union[callable, str]):
             # Use it as a scoring function between two arrays
             if filter.require_types:
                 return lambda x, y, x_discrete=False, y_discrete=False, **kwargs: function(
-                    np.expand_dims(x, axis=1), y, discrete_features=x_discrete, discrete_target=y_discrete, **kwargs)[0]
+                    np.expand_dims(x, axis=1), y, discrete_features=x_discrete, discrete_target=y_discrete, **kwargs
+                )[0]
             else:
                 return lambda x, y, **kwargs: function(np.expand_dims(x, axis=1), y, **kwargs)[0]
     else:
@@ -73,7 +81,7 @@ class RelevanceMixin(ABC):
 
     def _get_relevance(self, x: np.ndarray, y: np.ndarray, i: int):
         relevance_func = get_function(self.relevance)
-        kwargs = self.relevance_kwargs.copy() or {}
+        kwargs = (self.relevance_kwargs or {}).copy()
 
         if 'discrete_target' in kwargs:
             kwargs['y_discrete'] = kwargs.pop('discrete_target')
@@ -97,8 +105,9 @@ class RelevanceMixin(ABC):
         if n_jobs == 1:
             relevances = np.array([self._get_relevance(X[:, i], y, i) for i in iters])
         else:
-            relevances = Parallel(n_jobs=min(multiprocessing.cpu_count() - 1, n_jobs))(
-                delayed(self._get_relevance)(X[:, i], y, i) for i in iters)
+            relevances = Parallel(
+                n_jobs=min(multiprocessing.cpu_count() - 1, n_jobs), temp_folder=_get_joblib_temp_folder()
+            )(delayed(self._get_relevance)(X[:, i].copy(), y, i) for i in iters)
         return relevances
 
     def get_relevance_name(self):
@@ -122,13 +131,9 @@ class RedundancyMixin(ABC):
 
         super().__init__(*args, **kwargs)
 
-    def _get_redundancy(self,
-                        x: np.ndarray,
-                        y: np.ndarray,
-                        i: int,
-                        j: int,
-                        ij_cache: float = None,
-                        ji_cache: float = None):
+    def _get_redundancy(
+        self, x: np.ndarray, y: np.ndarray, i: int, j: int, ij_cache: float = None, ji_cache: float = None
+    ):
         if ij_cache is not None:
             # Use the cache if possible
             if not np.isnan(ij_cache):
@@ -139,7 +144,7 @@ class RedundancyMixin(ABC):
 
         # Else, compute redundancy from scratch
         redundancy_func = get_function(self.redundancy)
-        kwargs = self.redundancy_kwargs.copy() or {}
+        kwargs = (self.redundancy_kwargs or {}).copy()
 
         # Handle discrete features
         if 'discrete_features' in kwargs:
@@ -198,14 +203,17 @@ class RedundancyMixin(ABC):
                 )
         else:
             n_jobs = min(multiprocessing.cpu_count() - 1, n_jobs)
-            redundancies_ = Parallel(n_jobs=n_jobs, )(delayed(self._get_redundancy)(
-                X[:, i],
-                X[:, j],
-                i,
-                j,
-                cache[i, j] if cache is not None else None,
-                cache[j, i] if cache is not None else None,
-            ) for i, j in iters)
+            X_sliced = [X[:, i].copy() for i in range(X.shape[1])]
+            redundancies_ = Parallel(n_jobs=n_jobs, temp_folder=_get_joblib_temp_folder())(
+                delayed(self._get_redundancy)(
+                    X_sliced[i],
+                    X_sliced[j],
+                    i,
+                    j,
+                    cache[i, j] if cache is not None else None,
+                    cache[j, i] if cache is not None else None,
+                ) for i, j in iters
+            )
             redundancies = np.full((X.shape[1], X.shape[1]), np.nan)
             for (i, j), redundancy in zip(ijs, redundancies_):
                 redundancies[i, j] = cache[i, j] = redundancy
@@ -219,18 +227,20 @@ class RedundancyMixin(ABC):
 
 
 class ConditionalRelevanceMixin(ABC):
-    def __init__(self,
-                 *args,
-                 conditional_relevance: Union[callable, str],
-                 conditional_relevance_kwargs: Optional[dict] = None,
-                 **kwargs):
+    def __init__(
+        self,
+        *args,
+        conditional_relevance: Union[callable, str],
+        conditional_relevance_kwargs: Optional[dict] = None,
+        **kwargs
+    ):
         self.conditional_relevance = conditional_relevance
         self.conditional_relevance_kwargs = conditional_relevance_kwargs
         super().__init__(*args, **kwargs)
 
     def _get_conditional_relevance(self, x, y, z, i, j):
         conditional_relevance_func = get_function(self.conditional_relevance)
-        kwargs = self.conditional_relevance_kwargs.copy() or {}
+        kwargs = (self.conditional_relevance_kwargs or {}).copy()
 
         if 'discrete_target' in kwargs:
             kwargs['y_discrete'] = kwargs.pop('discrete_target')
@@ -275,14 +285,17 @@ class ConditionalRelevanceMixin(ABC):
                     j,
                 )
         else:
-            n_jobs = min(multiprocessing.cpu_count() - 1, n_jobs)
-            conditional_relevances_ = Parallel(n_jobs=n_jobs, )(delayed(self._get_conditional_relevance)(
-                X[:, i],
-                y,
-                X[:, j],
-                i,
-                j,
-            ) for i, j in iters)
+
+            X_sliced = [X[:, i].copy() for i in range(X.shape[1])]
+            conditional_relevances_ = Parallel(n_jobs=n_jobs, temp_folder=_get_joblib_temp_folder())(
+                delayed(self._get_conditional_relevance)(
+                    X_sliced[i],
+                    y,
+                    X_sliced[j],
+                    i,
+                    j,
+                ) for i, j in iters
+            )
             conditional_relevances = np.full((X.shape[1], X.shape[1]), np.nan)
             for (i, j), conditional_relevance in zip(ijs, conditional_relevances_):
                 conditional_relevances[i, j] = conditional_relevance
@@ -321,7 +334,8 @@ class RankingSelectorMixin(ABC):
 
         if k is None or np.isinf(k) or k < 0 or np.isnan(k):
             raise ValueError(
-                'A finite k > 0 must be passed as an argument to `get_support` or as an argument to the constructor.')
+                'A finite k > 0 must be passed as an argument to `get_support` or as an argument to the constructor.'
+            )
 
         # Check if the filter has been fitted
         check_is_fitted(self, 'ranking_')

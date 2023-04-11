@@ -5,12 +5,14 @@ __all__ = ['CMIM']
 
 from typing import Union, Optional
 from collections import defaultdict
+from multiprocessing import Pool
 
 import numpy as np
 from tqdm import tqdm
 
 from sklearn.base import BaseEstimator
 from ._utils import RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin
+from ....parallel import from_numpy_to_shared_array, from_shared_array_to_numpy
 
 
 class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, BaseEstimator):
@@ -84,43 +86,66 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
         partial_score = relevance.copy()
         partial_score_comparisons = defaultdict(list)
 
+        # (i, j)
+        conditional_relevance = np.full((n_features, n_features), np.nan)
+
         # Initialize selected features
         ranking = np.full(n_features, np.nan)
 
         n_iterations = self.get_n_iterations(n_features)
-        for iteration in range(n_iterations):
 
-            selected_features = np.where(~np.isnan(ranking))[0]
-            remaining_features = np.where(np.isnan(ranking))[0]
+        with Pool(processes=n_jobs) as pool:
 
-            best_partial_score = 0
+            partial_score = from_numpy_to_shared_array()
 
-            # Compute the conditional of feature i with the selected features
-            for i in tqdm(
+            for iteration in range(n_iterations):
+
+                def random(args):
+                    r, g = args
+                    # print(g, r)
+
+                    # Maximum
+                    a.acquire()
+                    a_ = from_shared_array_to_numpy(a)
+                    a_[g] = np.maximum(a_[g], r)
+                    a.release()
+                    # print('M >', a_[g])
+
+                    ret = list(tqdm(pool.imap(random, list(zip(R, G))), total=len(R)))
+                    pool.close()
+                    pool.join()
+
+                selected_features = np.where(~np.isnan(ranking))[0]
+                remaining_features = np.where(np.isnan(ranking))[0]
+
+                best_partial_score = 0
+
+                # Compute the conditional of feature i with the selected features
+                for i in tqdm(
                     remaining_features,
                     disable=not progress_bar,
                     desc=
                     f'CMIM: Conditional Relevance ({self.get_conditional_relevance_name()}) {iteration + 1}/{n_iterations}'
-            ):
+                ):
 
-                # We compare against only features we haven't compared against yet
-                selected_features_to_compare_against = set(selected_features) - set(partial_score_comparisons[i])
+                    # We compare against only features we haven't compared against yet
+                    selected_features_to_compare_against = set(selected_features) - set(partial_score_comparisons[i])
 
-                for j in selected_features_to_compare_against:
-                    # If the partial score is less than the best partial score, we can skip
-                    if partial_score[i] > best_partial_score:
-                        cond_relevance = self.get_conditional_relevance(X, y, i, j)
-                        partial_score[i] = min(partial_score[i], cond_relevance)
-                        partial_score_comparisons[i].append(j)
+                    for j in selected_features_to_compare_against:
+                        # If the partial score is less than the best partial score, we can skip:
+                        # A feature can only become less relevant, not more relevant.
+                        if partial_score[i] > best_partial_score:
+                            cond_relevance = self.get_conditional_relevance(X, y, i, j)
+                            partial_score[i] = min(partial_score[i], cond_relevance)
+                            partial_score_comparisons[i].append(j)
 
-                if partial_score[i] > best_partial_score:
-                    best_partial_score = partial_score[i]
+                    best_partial_score = max(best_partial_score, partial_score[i])
 
-            # Select the best feature only among the remaining features
-            best_feature = np.argmax(np.where(np.isnan(ranking), partial_score, -np.inf))
+                # Select the best feature only among the remaining features
+                best_feature = np.argmax(np.where(np.isnan(ranking), partial_score, -np.inf))
 
-            # Update results
-            ranking[best_feature] = iteration + 1  # 1-indexed
+                # Update results
+                ranking[best_feature] = iteration + 1  # 1-indexed
 
         self.ranking_ = ranking
         self.relevance_ = relevance

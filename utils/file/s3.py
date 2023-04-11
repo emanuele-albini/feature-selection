@@ -71,7 +71,9 @@ class _Remote:
                 raise e
         return True
 
-    def list(self, prefix: Optional[str] = None, recursive: bool = True,
+    def list(self,
+             prefix: Optional[str] = None,
+             recursive: bool = True,
              verbose=False) -> Union[List[dict], pd.DataFrame]:
         """List the contents of the (remote) S3 Bucket
 
@@ -133,6 +135,10 @@ class _Local:
     def _listdir(path, key=None, recursive=True):
         if key is None:
             key = ''
+
+        # No file to list of the path does not exists
+        if not os.path.exists(path):
+            return []
 
         contents = os.listdir(path)
         contents_paths = [os.path.join(path, c) for c in contents]
@@ -226,7 +232,10 @@ class S3Bucket:
     @staticmethod
     def __list_to_frame(contents):
         # Create a DataFrame
-        df = pd.DataFrame(contents)
+        if len(contents) > 0:
+            df = pd.DataFrame(contents)
+        else:
+            df = pd.DataFrame([], columns=['Key', 'LastModified', 'Size'])
 
         # Sort by size
         df = df.sort_values(['LastModified', 'Key'], ascending=False)
@@ -354,12 +363,12 @@ class S3Bucket:
         assert not uri_only or not force, "Cannot force download if uri_only = True."
 
         uri = self.local.key_to_local_uri(key)
-        os.makedirs(os.path.dirname(uri), exist_ok=True)
 
         if uri_only:
             return uri
 
-        if (force or self.is_remote_more_recent(key)) and not local_only:
+        if not local_only and (force or self.is_remote_more_recent(key)):
+            os.makedirs(os.path.dirname(uri), exist_ok=True)
             self._get(key)
 
         return uri

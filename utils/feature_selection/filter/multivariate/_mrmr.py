@@ -122,7 +122,8 @@ class MRMR(RankingSelectorMixin, RelevanceMixin, RedundancyMixin, BaseEstimator)
                     progress_bar=progress_bar,
                     n_jobs=n_jobs,
                     progress_bar_kwargs=dict(
-                        desc=f'mRMR: Redundancy ({self.get_redundancy_name()}) ({iteration + 1}/{n_iterations})'),
+                        desc=f'mRMR: Redundancy ({self.get_redundancy_name()}) ({iteration + 1}/{n_iterations})'
+                    ),
                 )
                 redundancy_ = np.nan_to_num(redundancies, nan=0.0).sum(axis=1) / len(selected_features)
 

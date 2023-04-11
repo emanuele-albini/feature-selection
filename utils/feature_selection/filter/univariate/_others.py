@@ -117,10 +117,10 @@ def _filter_decorator(f):
         assert X.ndim == 2, f'X must be a 2D array (X: {X.ndim}D)'
         assert y.ndim == 1, f'y must be a 1D array (y: {y.ndim}D)'
         assert n > 0, f'n must be greater than 0 (n: {n})'
-        assert not np.any(np.isnan(y)), f'y must not contain NaNs'
 
         # Pre-compute NaN mask
-        Mask = ~np.isnan(X)
+        mask_x = ~np.isnan(X)
+        mask_y = ~np.isnan(y)
 
         scores = []
         pvalues = []
@@ -128,8 +128,9 @@ def _filter_decorator(f):
         for i in tqdm(range(X.shape[1]), disable=not progress_bar, **progress_bar_kwargs or {}):
 
             # Remove NaNs
-            X_ = X[:, i][Mask[:, i]].reshape(-1, 1)
-            y_ = y[Mask[:, i]]
+            mask_ = mask_x[:, i] & mask_y
+            X_ = X[:, i][mask_].reshape(-1, 1)
+            y_ = y[mask_]
 
             # Sample data
             X_ = sample_data(X_, n=n, random_state=random_state, replace=False, safe=True)

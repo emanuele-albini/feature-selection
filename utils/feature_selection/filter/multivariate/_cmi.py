@@ -102,9 +102,13 @@ def _cmi(x, y, z):
     """
 
     assert x.ndim == 1 and y.ndim == 1 and z.ndim == 1, "All inputs must be 1D arrays, not supported yet."
-    xzy = np.concatenate((x.reshape(-1, 1) if x.ndim == 1 else x, z.reshape(-1, 1) if z.ndim == 1 else z,
-                          y.reshape(-1, 1) if y.ndim == 1 else y),
-                         axis=1)
+    xzy = np.concatenate(
+        (
+            x.reshape(-1, 1) if x.ndim == 1 else x, z.reshape(-1, 1) if z.ndim == 1 else z,
+            y.reshape(-1, 1) if y.ndim == 1 else y
+        ),
+        axis=1
+    )
 
     # Generate the contingency hypercube (does not support non-1D data)
     contingency = contingency_hypercube(xzy, sparse=True)
@@ -159,9 +163,13 @@ def _cmi_cd(x, y, z, k=5):
             IEEE Transactions on Information Theory, vol. 67, no. 1, pp. 464–484, Jan. 2021, doi: 10.1109/TIT.2020.3024886.
 
     """
-    xzy = np.concatenate((x.reshape(-1, 1) if x.ndim == 1 else x, z.reshape(-1, 1) if z.ndim == 1 else z,
-                          y.reshape(-1, 1) if y.ndim == 1 else y),
-                         axis=1)
+    xzy = np.concatenate(
+        (
+            x.reshape(-1, 1) if x.ndim == 1 else x, z.reshape(-1, 1) if z.ndim == 1 else z,
+            y.reshape(-1, 1) if y.ndim == 1 else y
+        ),
+        axis=1
+    )
 
     lookup = NearestNeighbors(metric='chebyshev')
     lookup.fit(xzy)
@@ -209,9 +217,13 @@ def _cmi_cc(x, y, z, k=5):
             Stefan Frenzel and Bernd Pompe. 2007. Physics Review Letters.
     """
 
-    xzy = np.concatenate((x.reshape(-1, 1) if x.ndim == 1 else x, z.reshape(-1, 1) if z.ndim == 1 else z,
-                          y.reshape(-1, 1) if y.ndim == 1 else y),
-                         axis=1)
+    xzy = np.concatenate(
+        (
+            x.reshape(-1, 1) if x.ndim == 1 else x, z.reshape(-1, 1) if z.ndim == 1 else z,
+            y.reshape(-1, 1) if y.ndim == 1 else y
+        ),
+        axis=1
+    )
 
     lookup = NearestNeighbors(metric='chebyshev')
     lookup.fit(xzy)

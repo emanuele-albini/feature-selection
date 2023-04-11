@@ -99,20 +99,22 @@ def reliefF(X, y, n=10000, k=10, random_state=0, discrete_feature_indexes=None, 
     missing_probabilities = {c: _is_nan(X[y == c]).mean(axis=0) for c in classes}
 
     # Create the nearest neighbors structure
-    nn = {(c, c_): NearestNeighbors(
-        n_neighbors=k,
-        metric=lambda x, y: reliefF_distance(
-            x,
-            y,
-            continuous_features_mask=continuous_features_mask,
-            discrete_features_mask=discrete_features_mask,
-            x_missing_proba=missing_probabilities[c],
-            y_missing_proba=missing_probabilities[c_],
-        ),
-        n_jobs=n_jobs,
-    ).fit(X)
-          for c in classes for c_ in tqdm(
-              [c__ for c__ in classes if c__ >= c], desc=f'RELIEF-F NN (c={c})', disable=not verbose, unit='classes')}
+    nn = {
+        (c, c_): NearestNeighbors(
+            n_neighbors=k,
+            metric=lambda x, y: reliefF_distance(
+                x,
+                y,
+                continuous_features_mask=continuous_features_mask,
+                discrete_features_mask=discrete_features_mask,
+                x_missing_proba=missing_probabilities[c],
+                y_missing_proba=missing_probabilities[c_],
+            ),
+            n_jobs=n_jobs,
+        ).fit(X)
+        for c in classes for c_ in
+        tqdm([c__ for c__ in classes if c__ >= c], desc=f'RELIEF-F NN (c={c})', disable=not verbose, unit='classes')
+    }
 
     def _get_nn(c, c_):
         if c_ >= c:
@@ -143,10 +145,12 @@ def reliefF(X, y, n=10000, k=10, random_state=0, discrete_feature_indexes=None, 
 
         # Subtract the feature-wise distance from the other class neighbors
         # (weighted by the probability of the other class)
-        for c_ in tqdm([c__ for c__ in classes if c__ != c],
-                       desc=f'RELIEF-F Other classes (c={c})',
-                       disable=not verbose,
-                       unit=' classes'):
+        for c_ in tqdm(
+            [c__ for c__ in classes if c__ != c],
+            desc=f'RELIEF-F Other classes (c={c})',
+            disable=not verbose,
+            unit=' classes'
+        ):
             weight_ = class_probabilities[c_] / (sum(list(class_probabilities.values())) - class_probabilities[c])
             other_neighbors = _get_nn(c, c_).kneighbors(X_[c], return_distance=False)
             for i, other_neighbors_ in enumerate(other_neighbors):
