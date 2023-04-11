@@ -50,7 +50,7 @@ def _score_function_from_scipy_statistics_decorator_factory(abs: bool = False, n
         elif isinstance(r, tuple):
             return r[0]
         else:
-            raise NotImplementedError(f'Unsupported scipy function: {f}')
+            raise NotImplementedError(f'Unsupported scipy function.')
 
     def _extract_pvalue(r):
         if hasattr(r, 'pvalue'):
@@ -58,7 +58,7 @@ def _score_function_from_scipy_statistics_decorator_factory(abs: bool = False, n
         elif isinstance(r, tuple):
             return r[1]
         else:
-            raise NotImplementedError(f'Unsupported scipy function: {f}')
+            raise NotImplementedError(f'Unsupported scipy function.')
 
     def decorator(f):
         @functools.wraps(f)
