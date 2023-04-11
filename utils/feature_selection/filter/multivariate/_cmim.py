@@ -93,17 +93,19 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
 
         with Pool(processes=n_jobs) as pool:  # Pool will be closed automatically
 
-            conditional_relevances_shared, conditional_relevances = from_numpy_to_shared_array(conditional_relevances,
-                                                                                               return_numpy=True)
-            X_shared, X = from_numpy_to_shared_array(X, return_numpy=True, raw=True)
-            y_shared, y = from_numpy_to_shared_array(y, return_numpy=True, raw=True)
+            self._conditional_relevances_shared, conditional_relevances = from_numpy_to_shared_array(
+                conditional_relevances, return_numpy=True
+            )
+            self._X_shared, X = from_numpy_to_shared_array(X, return_numpy=True, raw=True)
+            self._y_shared, y = from_numpy_to_shared_array(y, return_numpy=True, raw=True)
 
             for iteration in range(n_iterations):
 
                 selected_features = np.where(~np.isnan(ranking))[0]
                 remaining_features = np.where(np.isnan(ranking))[0]
-
-                tqdm(remaining_features, )
+                self._remaining_features_shared, remaining_features = from_numpy_to_shared_array(
+                    remaining_features, return_numpy=True, raw=True
+                )
 
                 # Generate the list of conditional relevances to compute
                 ijs = []
@@ -115,40 +117,17 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
                     ]
                     ijs.extend([(i, j) for j in selected_features_to_compare_against])
 
-                # Define a function that computes the conditional relevance
-                def _compute_conditional_relevance(args):
-                    i, j = args
-
-                    # Get the shared arrays in numpy format
-                    conditional_relevances_ = from_shared_array_to_numpy(conditional_relevances_shared)
-                    X_ = from_shared_array_to_numpy(X_shared)
-                    y_ = from_shared_array_to_numpy(y_shared)
-
-                    # Compute the current partial scores (may change by the time we compute the conditional relevance)
-                    partial_scores = conditional_relevances_.min(axis=1)
-
-                    # We skip the feature if the partial score is less than the best partial score
-                    # It cannot become the best feature
-                    if partial_scores[i] > partial_scores[remaining_features].max():
-                        return
-
-                    # Compute the conditional relevance
-                    cond_relevance = self.get_conditional_relevance(X_, y_, i, j)
-
-                    # Save it to the shared array
-                    conditional_relevances_shared.acquire()
-                    conditional_relevances_[i, j] = cond_relevance
-                    conditional_relevances_shared.release()
-
                 # Compute the conditional relevances in parallel
                 # imap returns an iterator, so we need to wrap it in a list to force the computation
                 _ = list(
                     tqdm(
-                        pool.imap(_compute_conditional_relevance, ijs, total=len(ijs)),
+                        pool.imap(self._compute_conditional_relevance, ijs),
                         disable=not progress_bar,
+                        total=len(ijs),
                         desc=
                         f'CMIM: Conditional Relevance ({self.get_conditional_relevance_name()}) {iteration + 1}/{n_iterations}'
-                    ))
+                    )
+                )
 
                 # Select the best feature only among the remaining features
                 partial_scores = conditional_relevances.min(axis=1)
@@ -162,3 +141,33 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
         self.partial_score_ = partial_scores
 
         return self
+
+    def _compute_conditional_relevance(self, args):
+        i, j = args
+
+        conditional_relevances_shared = self._conditional_relevances_shared
+        X_shared = self._X_shared
+        y_shared = self._y_shared
+        remaining_features_shared = self._remaining_features_shared
+
+        # Get the shared arrays in numpy format
+        conditional_relevances = from_shared_array_to_numpy(conditional_relevances_shared)
+        X = from_shared_array_to_numpy(X_shared)
+        y = from_shared_array_to_numpy(y_shared)
+        remaining_features = from_shared_array_to_numpy(remaining_features_shared)
+
+        # Compute the current partial scores (may change by the time we compute the conditional relevance)
+        partial_scores = conditional_relevances.min(axis=1)
+
+        # We skip the feature if the partial score is less than the best partial score
+        # It cannot become the best feature
+        if partial_scores[i] > partial_scores[remaining_features].max():
+            return
+
+        # Compute the conditional relevance
+        cond_relevance = self.get_conditional_relevance(X, y, i, j)
+
+        # Save it to the shared array
+        conditional_relevances_shared.acquire()
+        conditional_relevances[i, j] = cond_relevance
+        conditional_relevances_shared.release()
