@@ -34,11 +34,16 @@ def from_numpy_to_shared_array(a, return_numpy=False, raw=False):
         return a_shared
 
 
-def from_shared_array_to_numpy(a):
+def from_shared_array_to_numpy(a, shape=None, dtype=None):
     """Creates a NumPy representation of a multiprocessing.Array
         NOTE: It assumes that the passed object has been create using `from_numpy_to_shared_array`
     """
+    if shape is None:
+        shape = a.shape
+    if dtype is None:
+        dtype = a.dtype
+
     if isinstance(a, multiprocessing.sharedctypes.SynchronizedArray):
-        return np.frombuffer(a.get_obj(), dtype=a.dtype).reshape(a.shape)
+        return np.frombuffer(a.get_obj(), dtype=dtype).reshape(shape)
     else:  # RawArray
-        return np.frombuffer(a, dtype=a.dtype).reshape(a.shape)
+        return np.frombuffer(a, dtype=dtype).reshape(shape)
