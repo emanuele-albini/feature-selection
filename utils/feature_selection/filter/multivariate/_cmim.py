@@ -92,9 +92,8 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
 
         n_iterations = self.get_n_iterations(n_features)
 
-        conditional_relevances_shared, conditional_relevances = from_numpy_to_shared_array(
-            conditional_relevances, return_numpy=True
-        )
+        conditional_relevances_shared, conditional_relevances = from_numpy_to_shared_array(conditional_relevances,
+                                                                                           return_numpy=True)
         X_splitted_shared = [from_numpy_to_shared_array(X[:, i].copy(), raw=True) for i in range(n_features)]
         y_shared = from_numpy_to_shared_array(y, raw=True)
 
@@ -102,27 +101,27 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
 
             selected_features = np.where(~np.isnan(ranking))[0]
             remaining_features = np.where(np.isnan(ranking))[0]
-            remaining_features_shared, remaining_features = from_numpy_to_shared_array(
-                remaining_features, return_numpy=True, raw=True
-            )
+            remaining_features_shared, remaining_features = from_numpy_to_shared_array(remaining_features,
+                                                                                       return_numpy=True,
+                                                                                       raw=True)
 
             with Pool(
-                processes=n_jobs,
-                initializer=self._init_pool_process,
-                initargs=(
-                    conditional_relevances_shared,
-                    conditional_relevances.shape,
-                    conditional_relevances.dtype,
-                    X_splitted_shared,
-                    X.shape,
-                    X.dtype,
-                    y_shared,
-                    y.shape,
-                    y.dtype,
-                    remaining_features_shared,
-                    remaining_features.shape,
-                    remaining_features.dtype,
-                ),
+                    processes=n_jobs,
+                    initializer=self._init_pool_process,
+                    initargs=(
+                        conditional_relevances_shared,
+                        conditional_relevances.shape,
+                        conditional_relevances.dtype,
+                        X_splitted_shared,
+                        (X.shape[0], ),
+                        X.dtype,
+                        y_shared,
+                        y.shape,
+                        y.dtype,
+                        remaining_features_shared,
+                        remaining_features.shape,
+                        remaining_features.dtype,
+                    ),
             ) as pool:  # Pool will be closed automatically
 
                 # Generate the list of conditional relevances to compute
@@ -147,8 +146,7 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
                         total=len(ijs),
                         desc=
                         f'CMIM: Conditional Relevance ({self.get_conditional_relevance_name()}) {iteration + 1}/{n_iterations}'
-                    )
-                )
+                    ))
 
                 # Select the best feature only among the remaining features
                 partial_scores = conditional_relevances.min(axis=1)
@@ -175,7 +173,7 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
             return
 
         # Compute the conditional relevance
-        cond_relevance = self.get_conditional_relevance(X, y, i, j)
+        cond_relevance = self._get_conditional_relevance(X[i], y, X[j], i, j)
 
         # Save it to the shared array
         conditional_relevances_shared.acquire()
