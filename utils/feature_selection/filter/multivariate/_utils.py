@@ -309,6 +309,8 @@ class ConditionalRelevanceMixin(ABC):
         return get_function_name(self.conditional_relevance)
 
 
+
+
 class RankingSelectorMixin(ABC):
     def __init__(self, *args, k: int = None, **kwargs):
         self.k = k
@@ -347,3 +349,13 @@ class RankingSelectorMixin(ABC):
         # We return the mask or the indices accordingly
         mask = ranking <= k
         return mask if not indices else np.where(mask)[0]
+
+
+class MockRankingSelector(RankingSelectorMixin):
+    @staticmethod
+    def from_selector(selector):
+        assert isinstance(selector, RankingSelectorMixin)
+        obj = MockRankingSelector(k = selector.k)
+        if hasattr(selector, 'ranking_'):
+            obj.ranking_ = selector.ranking_.copy()
+        return obj

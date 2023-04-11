@@ -3,6 +3,7 @@
 """
 __all__ = ['CMIM']
 
+import time
 from typing import Union, Optional
 from collections import defaultdict
 from multiprocessing import Pool
@@ -91,36 +92,37 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
 
         n_iterations = self.get_n_iterations(n_features)
 
-        conditional_relevances_shared, conditional_relevances = from_numpy_to_shared_array(conditional_relevances,
-                                                                                           return_numpy=True)
-        X_shared, X = from_numpy_to_shared_array(X, return_numpy=True, raw=True)
-        y_shared, y = from_numpy_to_shared_array(y, return_numpy=True, raw=True)
+        conditional_relevances_shared, conditional_relevances = from_numpy_to_shared_array(
+            conditional_relevances, return_numpy=True
+        )
+        X_splitted_shared = [from_numpy_to_shared_array(X[:, i].copy(), raw=True) for i in range(n_features)]
+        y_shared = from_numpy_to_shared_array(y, raw=True)
 
         for iteration in range(n_iterations):
 
             selected_features = np.where(~np.isnan(ranking))[0]
             remaining_features = np.where(np.isnan(ranking))[0]
-            remaining_features_shared, remaining_features = from_numpy_to_shared_array(remaining_features,
-                                                                                       return_numpy=True,
-                                                                                       raw=True)
+            remaining_features_shared, remaining_features = from_numpy_to_shared_array(
+                remaining_features, return_numpy=True, raw=True
+            )
 
             with Pool(
-                    processes=n_jobs,
-                    initializer=self._init_pool_process,
-                    initargs=(
-                        conditional_relevances_shared,
-                        conditional_relevances.shape,
-                        conditional_relevances.dtype,
-                        X_shared,
-                        X.shape,
-                        X.dtype,
-                        y_shared,
-                        y.shape,
-                        y.dtype,
-                        remaining_features_shared,
-                        remaining_features.shape,
-                        remaining_features.dtype,
-                    ),
+                processes=n_jobs,
+                initializer=self._init_pool_process,
+                initargs=(
+                    conditional_relevances_shared,
+                    conditional_relevances.shape,
+                    conditional_relevances.dtype,
+                    X_splitted_shared,
+                    X.shape,
+                    X.dtype,
+                    y_shared,
+                    y.shape,
+                    y.dtype,
+                    remaining_features_shared,
+                    remaining_features.shape,
+                    remaining_features.dtype,
+                ),
             ) as pool:  # Pool will be closed automatically
 
                 # Generate the list of conditional relevances to compute
@@ -145,7 +147,8 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
                         total=len(ijs),
                         desc=
                         f'CMIM: Conditional Relevance ({self.get_conditional_relevance_name()}) {iteration + 1}/{n_iterations}'
-                    ))
+                    )
+                )
 
                 # Select the best feature only among the remaining features
                 partial_scores = conditional_relevances.min(axis=1)
@@ -184,7 +187,7 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
         conditional_relevances_shared_,
         conditional_relevances_shape,
         conditional_relevances_dtype,
-        X_shared,
+        X_splitted_shared,
         X_shape,
         X_dtype,
         y_shared,
@@ -197,6 +200,8 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
         """Initialize a process in the pool."""
         global conditional_relevances, conditional_relevances_shared, X, y, remaining_features
 
+        t = time.time()
+
         # Get the shared arrays in numpy format
         conditional_relevances = from_shared_array_to_numpy(
             conditional_relevances_shared_,
@@ -208,7 +213,8 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
             shape=remaining_features_shape,
             dtype=remaining_features_dtype,
         )
-        X = from_shared_array_to_numpy(X_shared, shape=X_shape, dtype=X_dtype)
+        X = [from_shared_array_to_numpy(x_shared, shape=X_shape, dtype=X_dtype) for x_shared in X_splitted_shared]
         y = from_shared_array_to_numpy(y_shared, shape=y_shape, dtype=y_dtype)
+        print("Took", time.time() - t, "to convert to NumPy...")
 
         conditional_relevances_shared = conditional_relevances_shared_

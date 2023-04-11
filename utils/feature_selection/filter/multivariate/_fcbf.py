@@ -91,7 +91,8 @@ class FCBF(RankingSelectorMixin, RelevanceMixin, RedundancyMixin, BaseEstimator)
         )
 
         # Let's setup a cache for the redundancy calculation
-        redundancy_cache = np.full((n_features, n_features), np.nan)
+        if not hasattr(self, "_redundancy_cache"):
+            self._redundancy_cache = np.full((n_features, n_features), np.nan)
 
         # Set of selected features (highest relevance first)
         selected_features = np.argsort(relevance)[::-1]
@@ -116,7 +117,7 @@ class FCBF(RankingSelectorMixin, RelevanceMixin, RedundancyMixin, BaseEstimator)
             redundancies = self.get_redundancies(
                 X,
                 [(current_feature, j) for j in following_features],
-                cache=redundancy_cache,
+                cache=self._redundancy_cache,
                 progress_bar=progress_bar,
                 progress_bar_kwargs=dict(desc=f'FCBF: Redundancy ({self.get_redundancy_name()}) {i}/{n_iterations}'),
                 n_jobs=n_jobs,
