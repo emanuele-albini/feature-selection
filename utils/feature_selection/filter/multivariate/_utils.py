@@ -363,3 +363,6 @@ class MockRankingSelector(RankingSelectorMixin, BaseEstimator):
         if hasattr(selector, 'ranking_'):
             obj.ranking_ = selector.ranking_.copy()
         return obj
+
+    def fit(self):
+        return self

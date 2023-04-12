@@ -187,6 +187,9 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
 
     def _compute_conditional_relevance(self, i, j, xi, xj, y, conditional_relevances, remaining_features):
 
+        if not np.isnan(conditional_relevances[i, j]):
+            return conditional_relevances[i, j]
+
         # Compute the current partial scores (may change by the time we compute the conditional relevance)
         partial_scores = conditional_relevances.min(axis=1)
 
@@ -201,8 +204,9 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
     def _compute_conditional_relevance_parallel(self, args):
         i, j = args
 
-        xi = from_shared_array_to_numpy(X_splitted_shared[i], shape=X_shape, dtype=X_dtype)
-        xj = from_shared_array_to_numpy(X_splitted_shared[j], shape=X_shape, dtype=X_dtype)
+        conditional_relevances_shared.acquire()
+        if not np.isnan(conditional_relevances[i, j]):
+            return
 
         # Compute the current partial scores (may change by the time we compute the conditional relevance)
         partial_scores = conditional_relevances.min(axis=1)
@@ -211,6 +215,11 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
         # It cannot become the best feature
         if partial_scores[i] > partial_scores[remaining_features].max():
             return
+
+        conditional_relevances_shared.release()
+
+        xi = from_shared_array_to_numpy(X_splitted_shared[i], shape=X_shape, dtype=X_dtype)
+        xj = from_shared_array_to_numpy(X_splitted_shared[j], shape=X_shape, dtype=X_dtype)
 
         # Compute the conditional relevance
         cond_relevance = self._get_conditional_relevance(xi, y, xj, i, j)
