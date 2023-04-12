@@ -92,21 +92,29 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
 
         n_iterations = self.get_n_iterations(n_features)
 
-        conditional_relevances_shared, conditional_relevances = from_numpy_to_shared_array(conditional_relevances,
-                                                                                           return_numpy=True)
-        X_splitted_shared = [from_numpy_to_shared_array(X[:, i].copy(), raw=True) for i in range(n_features)]
-        y_shared = from_numpy_to_shared_array(y, raw=True)
+        X_splitted = [X[:, i].copy() for i in range(n_features)]
+
+        if n_jobs > 1:
+            conditional_relevances_shared, conditional_relevances = from_numpy_to_shared_array(
+                conditional_relevances, return_numpy=True
+            )
+            X_splitted_shared = [from_numpy_to_shared_array(x, raw=True) for x in X_splitted]
+            y_shared = from_numpy_to_shared_array(y, raw=True)
 
         for iteration in range(n_iterations):
 
             selected_features = np.where(~np.isnan(ranking))[0]
             remaining_features = np.where(np.isnan(ranking))[0]
-            remaining_features_shared, remaining_features = from_numpy_to_shared_array(remaining_features,
-                                                                                       return_numpy=True,
-                                                                                       raw=True)
 
-            with Pool(
+            if n_jobs > 1:
+                remaining_features_shared, remaining_features = from_numpy_to_shared_array(
+                    remaining_features, return_numpy=True, raw=True
+                )
+
+            if n_jobs > 1:
+                pool = Pool(
                     processes=n_jobs,
+                    maxtasksperchild=1,
                     initializer=self._init_pool_process,
                     initargs=(
                         conditional_relevances_shared,
@@ -122,38 +130,54 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
                         remaining_features.shape,
                         remaining_features.dtype,
                     ),
-            ) as pool:  # Pool will be closed automatically
+                )
 
-                # Generate the list of conditional relevances to compute
-                ijs = []
-                for i in remaining_features:
-                    # We compute conditional relevances only with the selected features
-                    # And only for features for which we don't have the conditional relevance yet
-                    selected_features_to_compare_against = [
-                        j for j in selected_features if np.isnan(conditional_relevances[i, j])
-                    ]
-                    ijs.extend([(i, j) for j in selected_features_to_compare_against])
+            # Generate the list of conditional relevances to compute
+            ijs = []
+            for i in remaining_features:
+                # We compute conditional relevances only with the selected features
+                # And only for features for which we don't have the conditional relevance yet
+                selected_features_to_compare_against = [
+                    j for j in selected_features if np.isnan(conditional_relevances[i, j])
+                ]
+                ijs.extend([(i, j) for j in selected_features_to_compare_against])
 
-                # Compute the conditional relevances in parallel
-                # imap returns an iterator, so we need to wrap it in a list to force the computation
+            # Compute the conditional relevances in parallel
+            # imap returns an iterator, so we need to wrap it in a list to force the computation
+            if n_jobs > 1:
                 _ = list(
                     tqdm(
                         pool.imap(
-                            self._compute_conditional_relevance,
+                            self._compute_conditional_relevance_parallel,
                             ijs,
                         ),
                         disable=not progress_bar,
                         total=len(ijs),
                         desc=
                         f'CMIM: Conditional Relevance ({self.get_conditional_relevance_name()}) {iteration + 1}/{n_iterations}'
-                    ))
+                    )
+                )
+            else:
+                for i, j in tqdm(
+                    ijs,
+                    disable=not progress_bar,
+                    desc=
+                    f'CMIM: Conditional Relevance ({self.get_conditional_relevance_name()}) {iteration + 1}/{n_iterations}'
+                ):
+                    conditional_relevances[i, j] = self._compute_conditional_relevance(
+                        i, j, X_splitted[i], X_splitted[j], y, conditional_relevances, remaining_features
+                    )
 
-                # Select the best feature only among the remaining features
-                partial_scores = conditional_relevances.min(axis=1)
-                best_feature = np.argmax(np.where(np.isnan(ranking), partial_scores, -np.inf))
+            # Select the best feature only among the remaining features
+            partial_scores = conditional_relevances.min(axis=1)
+            best_feature = np.argmax(np.where(np.isnan(ranking), partial_scores, -np.inf))
 
-                # Update results
-                ranking[best_feature] = iteration + 1  # 1-indexed
+            # Update results
+            ranking[best_feature] = iteration + 1  # 1-indexed
+
+            if n_jobs > 1:
+                pool.close()
+                pool.join()
 
         self.ranking_ = ranking
         self.relevance_ = relevance
@@ -161,8 +185,24 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
 
         return self
 
-    def _compute_conditional_relevance(self, args):
+    def _compute_conditional_relevance(self, i, j, xi, xj, y, conditional_relevances, remaining_features):
+
+        # Compute the current partial scores (may change by the time we compute the conditional relevance)
+        partial_scores = conditional_relevances.min(axis=1)
+
+        # We skip the feature if the partial score is less than the best partial score
+        # It cannot become the best feature
+        if partial_scores[i] > partial_scores[remaining_features].max():
+            return np.nan
+
+        # Compute the conditional relevance
+        return self._get_conditional_relevance(xi, y, xj, i, j)
+
+    def _compute_conditional_relevance_parallel(self, args):
         i, j = args
+
+        xi = from_shared_array_to_numpy(X_splitted_shared[i], shape=X_shape, dtype=X_dtype)
+        xj = from_shared_array_to_numpy(X_splitted_shared[j], shape=X_shape, dtype=X_dtype)
 
         # Compute the current partial scores (may change by the time we compute the conditional relevance)
         partial_scores = conditional_relevances.min(axis=1)
@@ -173,7 +213,7 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
             return
 
         # Compute the conditional relevance
-        cond_relevance = self._get_conditional_relevance(X[i], y, X[j], i, j)
+        cond_relevance = self._get_conditional_relevance(xi, y, xj, i, j)
 
         # Save it to the shared array
         conditional_relevances_shared.acquire()
@@ -185,9 +225,9 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
         conditional_relevances_shared_,
         conditional_relevances_shape,
         conditional_relevances_dtype,
-        X_splitted_shared,
-        X_shape,
-        X_dtype,
+        X_splitted_shared_,
+        X_shape_,
+        X_dtype_,
         y_shared,
         y_shape,
         y_dtype,
@@ -196,7 +236,9 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
         remaining_features_dtype,
     ):
         """Initialize a process in the pool."""
-        global conditional_relevances, conditional_relevances_shared, X, y, remaining_features
+        global conditional_relevances, y, remaining_features
+        global X_splitted_shared, X_shape, X_dtype
+        global conditional_relevances_shared
 
         t = time.time()
 
@@ -211,8 +253,8 @@ class CMIM(RankingSelectorMixin, RelevanceMixin, ConditionalRelevanceMixin, Base
             shape=remaining_features_shape,
             dtype=remaining_features_dtype,
         )
-        X = [from_shared_array_to_numpy(x_shared, shape=X_shape, dtype=X_dtype) for x_shared in X_splitted_shared]
         y = from_shared_array_to_numpy(y_shared, shape=y_shape, dtype=y_dtype)
-        print("Took", time.time() - t, "to convert to NumPy...")
 
+        # We need some shared variables in the child processes
+        X_splitted_shared, X_shape, X_dtype, = X_splitted_shared_, X_shape_, X_dtype_,
         conditional_relevances_shared = conditional_relevances_shared_
