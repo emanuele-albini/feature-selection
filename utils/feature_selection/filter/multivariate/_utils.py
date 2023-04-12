@@ -74,7 +74,7 @@ class RelevanceMixin(ABC):
         *args,
         relevance: Union[callable, str],
         relevance_kwargs: Optional[dict] = None,
-        **kwargs,
+        **kwargs,``
     ) -> None:
         self.relevance = relevance
         self.relevance_kwargs = relevance_kwargs
