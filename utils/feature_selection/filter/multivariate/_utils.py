@@ -353,9 +353,8 @@ class RankingSelectorMixin(ABC):
 
 
 class MockRankingSelector(RankingSelectorMixin, BaseEstimator):
-
     def __init__(self, **kwargs):
-        super().__init__(*kwargs)
+        super().__init__(**kwargs)
 
     @staticmethod
     def from_selector(selector):
